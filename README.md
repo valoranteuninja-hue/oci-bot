@@ -39,7 +39,7 @@ Because Render's free tier requires your app to run as a web server, this reposi
 2. Go to [Render.com](https://render.com) > New > Web Service.
 3. Connect your GitHub repository.
 4. Set Build Command: `pip install -r requirements.txt`
-5. Set Start Command: `gunicorn app:app`
+5. Set Start Command: `python app.py`
 6. Add all 4 `OCI_` variables from your `.env` as Environment Variables in the Render dashboard.
 7. Click Deploy, then grab your URL and put it into cron-job.org!
 
