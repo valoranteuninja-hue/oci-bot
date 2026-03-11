@@ -8,26 +8,33 @@ app = Flask(__name__)
 # Keep the last 50 lines of logs in memory
 bot_logs = []
 
+import sys
+
 def run_oci_bot():
     global bot_logs
     bot_logs.append("Starting Oracle Auto-Retry bot in the background...")
     
-    # Use Popen to stream the output live
-    process = subprocess.Popen(
-        ["python", "-u", "oracle-arm-retry.py"],  # -u for unbuffered output
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1
-    )
-    
-    for line in iter(process.stdout.readline, ''):
-        stripped_line = line.strip()
-        if stripped_line:
-            print(f"[BOT] {stripped_line}")  # Prints to Render's Logs tab
-            bot_logs.append(stripped_line)
-            if len(bot_logs) > 50:
-                bot_logs.pop(0)
+    try:
+        # Use sys.executable to ensure we use the exact same Python binary Render/Gunicorn is using
+        process = subprocess.Popen(
+            [sys.executable, "-u", "oracle-arm-retry.py"],  # -u for unbuffered output
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1
+        )
+        
+        for line in iter(process.stdout.readline, ''):
+            stripped_line = line.strip()
+            if stripped_line:
+                print(f"[BOT] {stripped_line}")  # Prints to Render's Logs tab
+                bot_logs.append(stripped_line)
+                if len(bot_logs) > 50:
+                    bot_logs.pop(0)
+    except Exception as e:
+        error_msg = f"CRITICAL ERROR: Failed to start the bot. Reason: {str(e)}"
+        print(error_msg)
+        bot_logs.append(error_msg)
 
 @app.route('/')
 def home():
