@@ -113,14 +113,43 @@ def main():
         log("   SSH_PUBLIC_KEY  : Contents of the .pub file you downloaded")
         sys.exit(1)
     
-    # Load OCI config from ~/.oci/config
-    try:
-        config = oci.config.from_file()
-        log("✅ OCI config loaded successfully")
-    except Exception as e:
-        log(f"❌ Failed to load OCI config: {e}")
-        log("   Run 'oci setup config' first to configure your credentials")
-        sys.exit(1)
+    # Determine Authentication Method
+    # 1. Try Environment Variables (For Render / Cloud)
+    oci_user = os.environ.get("OCI_USER_ID", "")
+    oci_fingerprint = os.environ.get("OCI_FINGERPRINT", "")
+    oci_tenancy = os.environ.get("OCI_TENANT_ID", "")
+    oci_region = os.environ.get("OCI_REGION", "")
+    oci_key_content = os.environ.get("OCI_KEY_CONTENT", "")
+    
+    if oci_user and oci_fingerprint and oci_tenancy and oci_region and oci_key_content:
+        log("☁️ Cloud Environment detected. Using OCI Environment Variables.")
+        # Fix potential newline escaping issues from Render dashboard
+        oci_key_content = oci_key_content.replace('\\n', '\n')
+        
+        config = {
+            "user": oci_user,
+            "fingerprint": oci_fingerprint,
+            "tenancy": oci_tenancy,
+            "region": oci_region,
+            "key_content": oci_key_content
+        }
+        try:
+            oci.config.validate_config(config)
+            log("✅ OCI Cloud config validated successfully.")
+        except Exception as e:
+            log(f"❌ Failed to validate OCI Cloud config: {e}")
+            sys.exit(1)
+            
+    # 2. Try Local File Fallback (For PC)
+    else:
+        try:
+            config = oci.config.from_file()
+            log("✅ Local OCI config loaded successfully (~/.oci/config)")
+        except Exception as e:
+            log(f"❌ Failed to load OCI config: {e}")
+            log("   Render Users: You must add OCI_USER_ID, OCI_FINGERPRINT, OCI_TENANT_ID, OCI_REGION, and OCI_KEY_CONTENT to Render Env Vars!")
+            log("   Local Users:  Run 'oci setup config' first to configure your credentials")
+            sys.exit(1)
     
     compute_client = oci.core.ComputeClient(config)
     

@@ -40,7 +40,14 @@ Because Render's free tier requires your app to run as a web server, this reposi
 3. Connect your GitHub repository.
 4. Set Build Command: `pip install -r requirements.txt`
 5. Set Start Command: `python app.py`
-6. Add all 4 `OCI_` variables from your `.env` as Environment Variables in the Render dashboard.
+6. In the Render Environment Variables tab, you must add **9** variables:
+   - Your original 4 (`OCI_COMPARTMENT_ID`, `OCI_SUBNET_ID`, `OCI_IMAGE_ID`, `OCI_SSH_PUBLIC_KEY`)
+   - The 5 authentication variables found inside your local `C:\\Users\\admin\\.oci\\config` file:
+     - `OCI_USER_ID`: (Your user OCID)
+     - `OCI_TENANT_ID`: (Your tenancy OCID)
+     - `OCI_FINGERPRINT`: (Your fingerprint)
+     - `OCI_REGION`: (e.g. `ap-mumbai-1`)
+     - `OCI_KEY_CONTENT`: (Open your `.pem` key file in notepad, copy the ENTIRE text including `-----BEGIN RSA PRIVATE KEY-----` and paste it here)
 7. Click Deploy, then grab your URL and put it into cron-job.org!
 
 *(Note: Oracle Cloud Shell pauses if you close your browser tab for more than 20 minutes, so you'd have to leave the browser tab open).*
