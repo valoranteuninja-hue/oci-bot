@@ -14,8 +14,8 @@ SETUP:
 
 import oci
 import sys
+import random
 import time
-import json
 from datetime import datetime
 
 import os
@@ -28,26 +28,26 @@ load_dotenv()
 # ⚙️ CONFIG - THESE VALUES ARE LOADED FROM .env
 # ============================================================
 
-COMPARTMENT_ID = os.environ.get("OCI_COMPARTMENT_ID", "")
-SUBNET_ID = os.environ.get("OCI_SUBNET_ID", "")
-IMAGE_ID = os.environ.get("OCI_IMAGE_ID", "")
-SSH_PUBLIC_KEY = os.environ.get("OCI_SSH_PUBLIC_KEY", "")
+COMPARTMENT_ID = os.environ.get("OCI_COMPARTMENT_ID", "").strip().strip('"').strip("'")
+SUBNET_ID = os.environ.get("OCI_SUBNET_ID", "").strip().strip('"').strip("'")
+IMAGE_ID = os.environ.get("OCI_IMAGE_ID", "").strip().strip('"').strip("'")
+SSH_PUBLIC_KEY = os.environ.get("OCI_SSH_PUBLIC_KEY", "").strip().strip('"').strip("'")
 
-# Availability Domain (from your Oracle Console)
-AVAILABILITY_DOMAIN = os.environ.get("OCI_AVAILABILITY_DOMAIN", "VFRl:AP-MUMBAI-1-AD-1")
+# Availability Domains (Fetched dynamically in main())
+AVAILABILITY_DOMAINS = [] 
 
 # Instance name
 INSTANCE_NAME = "strex-server"
 
 # Shape configuration
 SHAPE = "VM.Standard.A1.Flex"
-OCPUS = 4          # 4 cores (max free)
-MEMORY_GB = 24     # 24 GB RAM (max free)
+OCPUS = 1          # 1 core
+MEMORY_GB = 6      # 6 GB RAM
 BOOT_VOLUME_GB = 50  # 50 GB disk
 
 # Retry settings
-RETRY_INTERVAL_SECONDS = 60  # Try every 60 seconds
-MAX_RETRIES = 1440           # Keep trying for 24 hours (1440 minutes)
+RETRY_INTERVAL_SECONDS = 30  # Increased to 30s to avoid rate limits
+MAX_RETRIES = 10000          # Run for much longer
 
 # ============================================================
 # 🚀 SCRIPT - DO NOT EDIT BELOW THIS LINE
@@ -59,17 +59,17 @@ def log(message):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{timestamp}] {message}")
 
-def create_instance(compute_client):
-    """Attempt to create the ARM instance."""
+def create_instance(compute_client, availability_domain):
+    """Attempt to create the ARM instance in a specific AD."""
     
     instance_details = oci.core.models.LaunchInstanceDetails(
         compartment_id=COMPARTMENT_ID,
-        availability_domain=AVAILABILITY_DOMAIN,
+        availability_domain=availability_domain,
         display_name=INSTANCE_NAME,
         shape=SHAPE,
         shape_config=oci.core.models.LaunchInstanceShapeConfigDetails(
-            ocpus=OCPUS,
-            memory_in_gbs=MEMORY_GB
+            ocpus=float(OCPUS),
+            memory_in_gbs=float(MEMORY_GB)
         ),
         source_details=oci.core.models.InstanceSourceViaImageDetails(
             source_type="image",
@@ -153,6 +153,16 @@ def main():
     
     compute_client = oci.core.ComputeClient(config)
     
+    # 3. Dynamically fetch Availability Domains (Avoids prefix mismatches like VFRl:)
+    try:
+        identity_client = oci.identity.IdentityClient(config)
+        ads = identity_client.list_availability_domains(oci_tenancy or config['tenancy']).data
+        dynamic_ads = [ad.name for ad in ads]
+        log(f"✅ Dynamically fetched ADs: {', '.join(dynamic_ads)}")
+    except Exception as e:
+        log(f"⚠️ Warning: Could not fetch ADs dynamically: {e}")
+        dynamic_ads = AVAILABILITY_DOMAINS
+
     log("=" * 60)
     log("🚀 Oracle ARM Ampere A1 Auto-Retry Script")
     log("=" * 60)
@@ -161,15 +171,29 @@ def main():
     log(f"   Memory   : {MEMORY_GB} GB")
     log(f"   Disk     : {BOOT_VOLUME_GB} GB")
     log(f"   Region   : {config.get('region', 'unknown')}")
+    log(f"   ADs      : {', '.join([ad.split(':')[-1] for ad in dynamic_ads])}")
     log(f"   Interval : Every {RETRY_INTERVAL_SECONDS} seconds")
     log(f"   Max tries: {MAX_RETRIES}")
     log("=" * 60)
     log("")
+
+    # Debug check for ID formats
+    log("🔍 Configuration Check:")
+    log(f"   Compartment ID length: {len(COMPARTMENT_ID)}")
+    log(f"   Subnet ID length     : {len(SUBNET_ID)}")
+    log(f"   Image ID length      : {len(IMAGE_ID)}")
+    log(f"   SSH Key length       : {len(SSH_PUBLIC_KEY)}")
+    if SSH_PUBLIC_KEY.startswith('"') or SSH_PUBLIC_KEY.startswith("'"):
+        log("   ⚠️ WARNING: SSH key starts with a quote character!")
     
     for attempt in range(1, MAX_RETRIES + 1):
+        # Randomly choose an availability domain from the fetched list
+        ad_to_try = random.choice(dynamic_ads)
+        ad_name = ad_to_try.split(':')[-1]
+
         try:
-            log(f"🔄 Attempt {attempt}/{MAX_RETRIES} - Creating instance...")
-            instance = create_instance(compute_client)
+            log(f"🔄 Attempt {attempt}/{MAX_RETRIES} - Using {ad_name} - Creating instance...")
+            instance = create_instance(compute_client, ad_to_try)
             
             log("")
             log("=" * 60)
@@ -183,7 +207,8 @@ def main():
             log("⏳ Waiting for instance to get a Public IP...")
             log("   Check your Oracle Console → Compute → Instances → strex-server")
             log("")
-            log("🏎️ Your new server has 4 ARM cores + 24GB RAM!")
+            log("🏎️ Your new server has been created!")
+            log(f"   Shape: {SHAPE} ({OCPUS} OCPU, {MEMORY_GB} GB RAM)")
             log("   Go tell your AI assistant the Public IP to set everything up!")
             
             # Try to send a Windows notification
@@ -200,7 +225,14 @@ def main():
             return  # SUCCESS - Exit the script
             
         except oci.exceptions.ServiceError as e:
-            if e.status == 500 and "Out of capacity" in str(e.message):
+            if e.status == 400 and e.code == "CannotParseRequest":
+                log("   ❌ API Error (400): CannotParseRequest")
+                log("      This often means a parameter is invalid. Let's check the details:")
+                log(f"      Selected AD: {ad_to_try}")
+                log(f"      OCPUs      : {OCPUS}")
+                log(f"      Memory     : {MEMORY_GB} GB")
+                log(f"      Full Error : {e.message}")
+            elif e.status == 500 and "Out of capacity" in str(e.message):
                 log(f"   ⚠️ Out of capacity. Retrying in {RETRY_INTERVAL_SECONDS}s...")
             elif e.status == 500 and "Out of host capacity" in str(e.message):
                 log(f"   ⚠️ Out of host capacity. Retrying in {RETRY_INTERVAL_SECONDS}s...")
@@ -227,11 +259,11 @@ def main():
                     log("   3. Check that your user is in the 'Administrators' group.")
                     log("   4. Verify the Compartment ID in your .env file is correct.")
                     
-            time.sleep(RETRY_INTERVAL_SECONDS)
+            time.sleep(RETRY_INTERVAL_SECONDS + random.randint(1, 5))
             
         except Exception as e:
             log(f"   ❌ Unexpected error: {str(e)}")
-            time.sleep(RETRY_INTERVAL_SECONDS)
+            time.sleep(RETRY_INTERVAL_SECONDS + random.randint(1, 5))
     
     log("")
     log(f"😞 Exhausted all {MAX_RETRIES} attempts. No capacity found.")
