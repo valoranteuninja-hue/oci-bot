@@ -50,10 +50,19 @@ def home():
     html = f"<html><head><meta http-equiv='refresh' content='10'></head><body style='font-family: Arial; padding: 20px;'>{header}{logs_html}</body></html>"
     return html
 
-# Start the infinite retry script in a background thread (runs when imported by Gunicorn on Render)
-bot_thread = threading.Thread(target=run_oci_bot)
-bot_thread.daemon = True
-bot_thread.start()
+bot_started = False
+bot_lock = threading.Lock()
+
+@app.before_request
+def start_bot_thread_on_first_request():
+    global bot_started
+    if not bot_started:
+        with bot_lock:
+            if not bot_started:
+                bot_thread = threading.Thread(target=run_oci_bot)
+                bot_thread.daemon = True
+                bot_thread.start()
+                bot_started = True
 
 if __name__ == '__main__':
     # Render requires a web server binding to the $PORT env variable
