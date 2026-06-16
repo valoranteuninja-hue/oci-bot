@@ -41,8 +41,8 @@ INSTANCE_NAME = "strex-server"
 
 # Shape configuration
 SHAPE = "VM.Standard.A1.Flex"
-OCPUS = 4          # 4 cores
-MEMORY_GB = 24     # 24 GB RAM
+OCPUS = 1          # 1 core
+MEMORY_GB = 6      # 6 GB RAM
 BOOT_VOLUME_GB = 50  # 50 GB disk
 
 # Retry settings
